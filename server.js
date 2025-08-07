@@ -6,6 +6,7 @@ import cors from "cors";
 import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
+import ImageKit from "imagekit";
 
 dotenv.config();
 
@@ -13,54 +14,73 @@ const app = express();
 const PORT = 3000;
 
 // ⛓️ MIDDLEWARES
-app.use(cors({
-  origin: ["http://localhost:5173", "https://clinquant-torte-90da94.netlify.app"],
-  credentials: true
-}));
-
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
 
-// 📁 SERVE UPLOADS FOLDER
+// 📦 NEW: ImageKit Setup
+const imagekit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+});
+
+// 🧠 Replace diskStorage with memoryStorage
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+// 📁 GET __dirname equivalent in ES Module
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-// ☁️ MULTER SETUP
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
-});
-const upload = multer({ storage });
 
 // 🌐 MONGOOSE
 try {
   await mongoose.connect(process.env.MONGODB_URI);
-  console.log("Connected to MongoDB");
+  console.log("✅ Connected to MongoDB");
 } catch (err) {
-  console.error("MongoDB connection error:", err);
+  console.error("❌ MongoDB connection error:", err);
 }
 
 // 🧬 SCHEMAS
-const UserSchema = new mongoose.Schema({ username: String, email: String, img: String }, { timestamps: true });
-const CommentSchema = new mongoose.Schema({ date: String, desc: String }, { timestamps: true });
-const PostSchema = new mongoose.Schema({ img: String, title: String, slug: String, descr: String, content: String }, { timestamps: true });
-const NewPostSchema = new mongoose.Schema({ img: String, title: String, slug: String, descr: String, content: String }, { timestamps: true });
+const UserSchema = new mongoose.Schema(
+  { username: String, email: String, img: String },
+  { timestamps: true }
+);
+const CommentSchema = new mongoose.Schema(
+  { date: String, desc: String },
+  { timestamps: true }
+);
+const PostSchema = new mongoose.Schema(
+  { img: String, title: String, slug: String, descr: String, content: String },
+  { timestamps: true }
+);
+const NewPostSchema = new mongoose.Schema(
+  { img: String, title: String, slug: String, descr: String, content: String },
+  { timestamps: true }
+);
 
 const NewpostsModel = mongoose.model("Newpost", NewPostSchema);
 const CommentModel = mongoose.model("Comment", CommentSchema);
 const PostModel = mongoose.model("Post", PostSchema);
 
 // 📥 FILE UPLOAD + POST SAVE
-// ✅ POST route with multer to upload and save post
 app.post("/create-post", upload.single("file"), async (req, res) => {
   const { title, descr, content } = req.body;
 
   try {
-    // ✅ This stores the full accessible URL in DB
-    const fileUrl = req.file ? `http://localhost:3000/uploads/${req.file.filename}` : "";
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
 
+    // ⬆️ Upload file buffer to ImageKit
+    const imageResponse = await imagekit.upload({
+      file: req.file.buffer,
+      fileName: req.file.originalname,
+      folder: "/blog-posts", // optional
+    });
+
+    // 📝 Save post with ImageKit image URL
     const post = await NewpostsModel.create({
-      img: fileUrl, // ✅ store full URL here
+      img: imageResponse.url,
       title,
       slug: title.toLowerCase().replace(/\s+/g, "-"),
       descr,
@@ -69,11 +89,10 @@ app.post("/create-post", upload.single("file"), async (req, res) => {
 
     res.status(201).json(post);
   } catch (err) {
-    console.error(err);
+    console.error("❌ Image upload or DB save error:", err);
     res.status(500).json({ message: "Error creating post" });
   }
 });
-
 
 // 🧾 API ROUTES
 app.get("/getdata", async (req, res) => {
@@ -87,8 +106,8 @@ app.get("/getdata", async (req, res) => {
 
 app.get("/getnewdata", async (req, res) => {
   try {
-     const data = await NewpostsModel.find();
-     res.json(data);
+    const data = await NewpostsModel.find();
+    res.json(data);
   } catch (err) {
     res.status(501).json("Error fetching data");
   }
@@ -123,17 +142,14 @@ app.post("/sendcomment", async (req, res) => {
 });
 
 app.get("/getcomments", async (req, res) => {
-  
   try {
     const data = await CommentModel.find();
     res.status(200).json(data);
   } catch (err) {
-    res.status(501).json("Error sending comment");
+    res.status(501).json("Error fetching comments");
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("✅ Blog API is running!");
-});
-
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);

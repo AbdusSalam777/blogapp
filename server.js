@@ -14,7 +14,13 @@ const app = express();
 const PORT = 3000;
 
 // ⛓️ MIDDLEWARES
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+app.use(cors({
+  origin: [
+    "http://localhost:5173", // for local development
+    "https://stackfullblog.netlify.app" // for production Netlify frontend
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // 📦 NEW: ImageKit Setup
